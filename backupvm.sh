@@ -5,14 +5,20 @@ if [ "$#" -lt 3 ]; then
     exit 1
 fi
 
-# basic script configuration
-username='<admin at internal>'
-password='<your-password>'
-baseurl='https://your-ovirt-engine.example.com'
+# These two variables are exported in the main script
+# for security purpose with GitHub. The main script is here:
+#
+#   /usr/local/backup/ovirtbackup.sh
+#
+# If you wart test or use standalone the script remove 
+# comments and define the variables here.
+#username='admin@internal'
+#password='<xxxxxxxxxxxxx>'
+#baseurl='https://.....'
+
 
 # machine for the dd commands (local machine)
-ovbackup='<vm id to attach disks snapshot>'
-
+ovbackup='215c6557-7357-4cd9-ba69-9fcb6cb061bc'
 
 mydate="$(date '+%Y%m%d%H%M')"
 description="backup-$mydate"
@@ -89,12 +95,19 @@ function ovirt-delete ()
     checkcurl $?
 }
 
-# remove last backup from directory 
-function rotatedir() 
+# rotatebck <n> 
+function rotatebck() 
 {
-    local n=$1
-    local dirs=( $(ls -1 "$bckdir") )
-    echo $dirs
+    #local n=$1
+    local n=3 
+    local list=( $(ls -1 "${bckdir}") )
+    local m
+
+    let "m = ${#list[@]} - $n-1"
+
+    for (( n=0; n<=m; ++n )); do 
+		rm -rf "${bckdir}/${list[$n]}"    	
+	done
 }
 
 
@@ -182,7 +195,7 @@ echo -n 'Attaching snapshot disks'
 
 for (( i=0; i<${#disks[@]}; i++ )); do
     xml="<disk id=\"${disks[$i]}\"><snapshot id=\"$snapshotid\"/><active>true</active></disk>"
-    ovirt-post "/api/vms/${ovbackup}/disks" "$xml" > "$tmpfile"
+    ovirt-post "/api/vms/$ovbackup/disks" "$xml" > "$tmpfile"
     sleep 2
 done
 
@@ -223,7 +236,7 @@ echo -n 'Detaching snapshot disks'
 xml='<action><detach>true</detach></action>'
 
 for (( i=0; i<${#disks[@]}; i++ )); do
-    ovirt-delete "/api/vms/${ovbackup}/disks/${disks[$i]}" "$xml" > "$tmpfile"
+    ovirt-delete "/api/vms/$ovbackup/disks/${disks[$i]}" "$xml" > "$tmpfile"
     sleep 1
 done
 
@@ -294,6 +307,8 @@ echo -n 'Powering up VM'
 # power up the virtual machine
 ovirt-post "/api/vms/$vmid/start" '<action/>' > "$tmpfile"
 
+# remove old backup
+rotatebck
 
 # wait up state
 state='down'
