@@ -218,7 +218,7 @@ for (( i=0; i<${#disks[@]}; i++ )); do
     key="$(expr substr ${disks[$i]} 1 20)"
     devfile="/dev/${devicemap[$key]}"
     #dd if="$diskdev" of="${bckdir}/${mydate}/${disks[$i]}"
-    devsize=$(blockdev --getsize64 "$devfile")
+    devsize=$(/sbin/blockdev --getsize64 "$devfile")
     dd if="$devfile" 2> /dev/null | pv -N "${disks[$i]}" -s "$devsize" | \
     dd of="${bckdir}/${mydate}/${disks[$i]}" 2> /dev/null
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
