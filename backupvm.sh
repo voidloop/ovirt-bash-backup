@@ -110,6 +110,27 @@ function rotatebck()
 	done
 }
 
+#elapsedtime <seconds>
+function timerstart() 
+{
+    _MYTIMER="$(date +%s)"
+}
+
+#elapsedtime <seconds>
+function elapsedtime() 
+{
+    local dt="$(( $(date +%s) - _MYTIMER ))"
+    local ds=$(( dt%60 ))
+    local dm=$(( (dt/60)%60 ))
+    local dh=$(( dt/3600 ))
+
+    if [ "$dh" -eq 0 ]; then 
+        printf '%02d:%02d' $dm $ds
+    else 
+        printf '%02d:%02d:%02d' $dh $dm $ds
+    fi
+}
+
 
 ###############################################################################
 ## STEP1. Take a snapshot of the virtual machine to be backed up.
@@ -159,9 +180,6 @@ for (( i=1; i<=10; ++i )); do
     if [ "$snapshotstatus" != 'locked' ]; then
         break
     fi
-    
-    # print a dot every minute
-    [ $(expr "$i" '%' '3') -eq 0 ] && echo -n '.'
 done
 
 if [ "$snapshotstatus" = 'locked' ]; then
@@ -204,7 +222,6 @@ echo ' [OK]'
 ###############################################################################
 ## STEP4. Back up the virtual machine disk at the time of the snapshot.
 ###############################################################################
-echo "Data transfer:"
 
 # create an associative array with device serial as key
 declare -A devicemap
@@ -214,15 +231,23 @@ for file in `ls -1 /sys/block/*/serial`; do
 done
 
 # transfer disk snapshots
+transferfailed=false # error flag
 for (( i=0; i<${#disks[@]}; i++ )); do
+    echo -n "Transfering disk '${disks[$i]}'"
+    
+    timerstart
+        
     key="$(expr substr ${disks[$i]} 1 20)"
     devfile="/dev/${devicemap[$key]}"
-    #dd if="$diskdev" of="${bckdir}/${mydate}/${disks[$i]}"
-    devsize=$(/sbin/blockdev --getsize64 "$devfile")
-    dd if="$devfile" 2> /dev/null | pv -N "${disks[$i]}" -s "$devsize" | \
-    dd of="${bckdir}/${mydate}/${disks[$i]}" 2> /dev/null
-    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-        errorexit "data transfer failed"
+    dd if="$devfile" of="${bckdir}/${mydate}/${disks[$i]}" 2> /dev/null       
+    
+    if [ "$?" -ne 0 ]; then
+        echo " [FAIL]" 
+        echo "data transfer failed: ${disks[$i]}" >&2
+        transferfailed=true
+        break
+    else         
+        echo " [OK: $(elapsedtime)]"
     fi
 done
 
@@ -239,7 +264,6 @@ for (( i=0; i<${#disks[@]}; i++ )); do
     ovirt-delete "/api/vms/$ovbackup/disks/${disks[$i]}" "$xml" > "$tmpfile"
     sleep 1
 done
-
 
 echo ' [OK]'
 
@@ -261,9 +285,6 @@ for (( i=1; i<=10; ++i )); do
     if [ "$state" = 'down' ]; then 
         break
     fi
-
-    # print a dot every minute
-    [ $(expr "$i" '%' '2') -eq 0 ] && echo -n '.'
 done
 
 # after the loop if state is down, something went wrong
@@ -289,9 +310,6 @@ for (( i=1; i<=20; ++i )); do
     if [ -z "$snapshotid" ]; then 
         break
     fi
-
-    # print a dot every minute
-    [ $(expr "$i" '%' '2') -eq 0 ] && echo -n '.'
 done 
 
 # after the loop if snapshotid exists, something went wrong
@@ -307,8 +325,12 @@ echo -n 'Powering up VM'
 # power up the virtual machine
 ovirt-post "/api/vms/$vmid/start" '<action/>' > "$tmpfile"
 
-# remove old backup
-rotatebck
+if ( ! ${transferfailed} ); then 
+    # remove old backup
+    rotatebck
+else 
+    rm -rf "${bckdir}/${mydate}"
+fi
 
 # wait up state
 state='down'
@@ -321,9 +343,6 @@ for (( i=1; i<=10; ++i )); do
     if [ "$state" = 'up' ]; then
         break
     fi
-
-    # print a dot every minute
-    [ $(expr "$i" '%' '2') -eq 0 ] && echo -n '.'
 done
 
 
@@ -333,4 +352,11 @@ if [ "$state" != 'up' ]; then
     errorexit "cannot power up the virtual machine"
 else 
     echo ' [OK]'
+fi
+
+if ( ${transferfailed} ); then 
+    echo "Backup failed"
+    exit 1
+else 
+    echo "Backup completed"
 fi
