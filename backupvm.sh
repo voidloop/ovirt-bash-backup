@@ -5,19 +5,19 @@ if [ "$#" -lt 3 ]; then
     exit 1
 fi
 
-# These two variables are exported in the main script
+# The folling variables are exported in the main script
 # for security purpose with GitHub. The main script is here:
 #
 #   /usr/local/backup/ovirtbackup.sh
 #
-# If you wart test or use standalone the script remove 
-# comments and define the variables here.
+# If you want test or use this script in standalone mode, uncomment
+# the following lines and redefine variables.
 #username='admin@internal'
 #password='<xxxxxxxxxxxxx>'
-#baseurl='https://.....'
+#baseurl='https://...../api'
 
 
-# machine for the dd commands (local machine)
+# this machine will run the dd commands (in this case is the local machine)
 ovbackup='215c6557-7357-4cd9-ba69-9fcb6cb061bc'
 
 mydate="$(date '+%Y%m%d%H%M')"
@@ -26,7 +26,7 @@ description="backup-$mydate"
 # default arguments to curl command
 defargs=('-k' '-u' "$username:$password" '-H' 'Content-type: application/xml')
 
-# backup name or alias
+# backup alias
 bckname="$1"
 
 # virtual machine identifier
@@ -144,7 +144,7 @@ tmpfile="$(mktemp)"
 trap "rm '$tmpfile'" EXIT
 
 # check the status of the virtual machine, exit if its state isn't up
-ovirt-get "/api/vms/$vmid" > "$tmpfile"
+ovirt-get "/vms/$vmid" > "$tmpfile"
 
 # check if snapshot is present
 state=$(xpath "$tmpfile" '//vm/status/state/node()' 2> /dev/null)
@@ -161,7 +161,7 @@ done
 xml="$xml </disks></snapshot>"
 
 # post xml 
-ovirt-post "/api/vms/$vmid/snapshots" "$xml" > "$tmpfile"
+ovirt-post "/vms/$vmid/snapshots" "$xml" > "$tmpfile"
 
 # retrieve the id of the snapshot
 snapshotid=$(xpath "$tmpfile" '//snapshot/@id' 2> /dev/null | sed -ne 's/.*id="\(.*\).*"/\1/p')
@@ -175,7 +175,7 @@ fi
 echo -n "Creating snapshot '$description'"
 for (( i=1; i<=10; ++i )); do
     sleep 20
-    ovirt-get "/api/vms/$vmid/snapshots/$snapshotid" > "$tmpfile"
+    ovirt-get "/vms/$vmid/snapshots/$snapshotid" > "$tmpfile"
     snapshotstatus=$(xpath "$tmpfile" '//snapshot/snapshot_status/text()' 2> /dev/null)
     if [ "$snapshotstatus" != 'locked' ]; then
         break
@@ -199,7 +199,7 @@ echo -n 'Saving VM configuration'
 mkdir -p "${bckdir}/${mydate}"
 
 # retrieve the vm configuration 
-curl "${defargs[@]}" "${baseurl}/api/vms/$vmid/snapshots/$snapshotid" \
+curl "${defargs[@]}" "${baseurl}/vms/$vmid/snapshots/$snapshotid" \
 -H 'All-Content: true' -X 'GET' > "${bckdir}/${mydate}/config_${vmid}" 2> /dev/null
 checkcurl $? 
 
@@ -213,7 +213,7 @@ echo -n 'Attaching snapshot disks'
 
 for (( i=0; i<${#disks[@]}; i++ )); do
     xml="<disk id=\"${disks[$i]}\"><snapshot id=\"$snapshotid\"/><active>true</active></disk>"
-    ovirt-post "/api/vms/$ovbackup/disks" "$xml" > "$tmpfile"
+    ovirt-post "/vms/$ovbackup/disks" "$xml" > "$tmpfile"
     sleep 2
 done
 
@@ -261,7 +261,7 @@ echo -n 'Detaching snapshot disks'
 xml='<action><detach>true</detach></action>'
 
 for (( i=0; i<${#disks[@]}; i++ )); do
-    ovirt-delete "/api/vms/$ovbackup/disks/${disks[$i]}" "$xml" > "$tmpfile"
+    ovirt-delete "/vms/$ovbackup/disks/${disks[$i]}" "$xml" > "$tmpfile"
     sleep 1
 done
 
@@ -274,13 +274,13 @@ echo ' [OK]'
 echo -n 'Shutting down VM'
 
 # shutdown the virtual machine
-ovirt-post "/api/vms/$vmid/shutdown" "<action/>" > "$tmpfile"
+ovirt-post "/vms/$vmid/shutdown" "<action/>" > "$tmpfile"
 
 # wait down state
 for (( i=1; i<=10; ++i )); do
     # wait some seconds for the next iteration
     sleep 30
-    ovirt-get "/api/vms/$vmid" > "$tmpfile"
+    ovirt-get "/vms/$vmid" > "$tmpfile"
     state=$(xpath "$tmpfile" '//vm/status/state/node()' 2> /dev/null)
     if [ "$state" = 'down' ]; then 
         break
@@ -298,12 +298,12 @@ fi
 echo -n 'Removing VM snapshot'
 
 # delete the snapshot
-ovirt-delete "/api/vms/$vmid/snapshots/$snapshotid" > "$tmpfile"
+ovirt-delete "/vms/$vmid/snapshots/$snapshotid" > "$tmpfile"
 
 # wait until the snapshot is deleted of a time out is occured
 for (( i=1; i<=20; ++i )); do 
     sleep 30
-    ovirt-get "/api/vms/$vmid/snapshots" > "$tmpfile"
+    ovirt-get "/vms/$vmid/snapshots" > "$tmpfile"
 
     # check if snapshot is present
     snapshotid=$(xpath "$tmpfile" '//snapshot/@id' 2> /dev/null | sed -ne 's/.*id="\(.*\).*"/\1/p' | grep "$snapshotid")
@@ -323,7 +323,7 @@ fi
 echo -n 'Powering up VM'
 
 # power up the virtual machine
-ovirt-post "/api/vms/$vmid/start" '<action/>' > "$tmpfile"
+ovirt-post "/vms/$vmid/start" '<action/>' > "$tmpfile"
 
 if ( ! ${transferfailed} ); then 
     # remove old backup
@@ -337,7 +337,7 @@ state='down'
 for (( i=1; i<=10; ++i )); do
     sleep 30
     # check status
-    ovirt-get "/api/vms/$vmid" > "$tmpfile"
+    ovirt-get "/vms/$vmid" > "$tmpfile"
 
     state=$(xpath "$tmpfile" '//vm/status/state/node()' 2> /dev/null)
     if [ "$state" = 'up' ]; then
