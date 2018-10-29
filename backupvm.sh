@@ -17,7 +17,8 @@ fi
 #baseurl='https://...../api'
 
 
-# this machine will run the dd commands (in this case is the local machine)
+# Fill in the UUID of the virtual machine running this script:
+# [ this machine will run the dd commands (in this case is the local machine) ]
 ovbackup='215c6557-7357-4cd9-ba69-9fcb6cb061bc'
 
 mydate="$(date '+%Y%m%d%H%M')"
